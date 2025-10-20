@@ -384,7 +384,3 @@ This dataset is made available under the [CC BY 4.0](https://creativecommons.org
 ## Contact
 
 For questions or issues with this dataset, please open an issue at: https://github.com/wilsonzlin/datasets/search-engine-open-data/
-
----
-
-**Last updated:** January 2025
