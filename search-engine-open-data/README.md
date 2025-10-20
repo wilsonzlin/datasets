@@ -1,10 +1,14 @@
 # search.wilsonl.in Web Search Index Crawl + Text Embeddings
 
-A complete web search engine dataset containing 280 million indexed web pages with 3 billion neural embeddings, designed for research in semantic search, information retrieval, and natural language processing.
+A production web search engine dataset built from scratch, containing 280 million indexed pages with 3 billion neural embeddings. Index cutoff: August 2023.
+
+**Live Demo:** https://search.wilsonl.in
+
+**Original Project:** https://blog.wilsonl.in/search-engine
 
 ## Dataset Overview
 
-This dataset represents a complete web search engine built from scratch, containing:
+This dataset represents a complete production-scale search engine built entirely from scratch, featuring:
 
 - **280 million web pages** crawled and parsed
 - **3 billion embeddings** (768-dimensional vectors using sentence-transformers/multi-qa-mpnet-base-dot-v1)
@@ -28,37 +32,51 @@ mount-s3 aws-opendata.wilsonl.in /mnt/search-engine --region us-east-1 --read-on
 ## Directory Structure
 
 ```
-./rocksdb-shards/
-  shard-0/ ... shard-63/           # 64 RocksDB shards with page data
-./kg-dbpedia/
-  vectors.hnsw                     # HNSW index of Wikipedia article embeddings
-  vectors.sqlite3                  # Article titles and metadata
-  article-abstracts.sqlite3        # Article summaries
-./kg-wikidata/
-  rocksdb/                         # Entity properties and relationships
-./resource-id/
-  rocksdb/                         # UID ↔ URL bidirectional mappings
-./hnsw-combined/
-  statement.hnsw                   # Combined statement-level embeddings (767 GB)
-  block-mean.hnsw                  # Combined block-level embeddings (1.1 TB)
-./export/
-  data.parquet                     # Main data export in columnar format
-  data-postcard/                   # Binary format for efficient loading
-    uids.bin                       # Resource UIDs (8 bytes each)
-    offsets.bin                    # Offsets into data.bin (8 bytes each)
-    data.bin                       # Packed Postcard-serialized data
-  statement_uid_base_to_resource_uid.arrow
-  statement_embeddings_msgpack.bin # External blob: statement embeddings
-  block_embeddings_msgpack.bin     # External blob: block embeddings
-  norm_doc_json_brotli.bin         # External blob: normalized documents
-  statements_json_brotli.bin       # External blob: statement chunks
-  source_brotli.bin                # External blob: original HTML
-  statement_labels_msgpack.bin     # External blob: classification labels
-  urls.txt                         # List of all indexed URLs
-  data.sql                         # SQL schema for Parquet
-./hnsw-shards/
-  block-mean/shard-0/ ... shard-63/index.hnsw  # 64 shards, ~15 GB each (960 GB total)
-  statement/shard-0/ ... shard-63/index.hnsw   # 64 shards, ~10 GB each (633 GB total)
+s3://aws-opendata.wilsonl.in/search-engine/
+
+├── rocksdb-shards/              # 64 sharded RocksDB instances with page data
+│   ├── shard-0/
+│   ├── shard-1/
+│   └── ... shard-63/
+│
+├── resource-id/                 # Resource ID mapping service
+│   └── rocksdb/
+│
+├── hnsw-shards/                 # 64 sharded HNSW indices (original production format)
+│   ├── block-mean/
+│   │   ├── shard-0/index.hnsw   (~15 GB each, 960 GB total)
+│   │   └── ... shard-63/
+│   └── statement/
+│       ├── shard-0/index.hnsw   (~10 GB each, 633 GB total)
+│       └── ... shard-63/
+│
+├── hnsw-combined/               # Combined HNSW indices (built for export)
+│   ├── block-mean.hnsw          (1.1 TB)
+│   └── statement.hnsw           (767 GB)
+│
+├── kg-dbpedia/                  # DBpedia knowledge graph data
+│   ├── vectors.hnsw
+│   ├── vectors.sqlite3
+│   └── article-abstracts.sqlite3
+│
+├── kg-wikidata/                 # Wikidata entity properties
+│   └── rocksdb/
+│
+└── export/                      # Alternative data formats
+    ├── data.parquet             # Columnar format for analytics
+    ├── data-postcard/           # Binary format for fast lookups
+    │   ├── uids.bin
+    │   ├── offsets.bin
+    │   └── data.bin
+    ├── statement_uid_base_to_resource_uid.arrow
+    ├── statement_embeddings_msgpack.bin
+    ├── block_embeddings_msgpack.bin
+    ├── norm_doc_json_brotli.bin
+    ├── statements_json_brotli.bin
+    ├── source_brotli.bin
+    ├── statement_labels_msgpack.bin
+    ├── urls.txt
+    └── data.sql
 ```
 
 ## Data Organization
@@ -67,9 +85,11 @@ mount-s3 aws-opendata.wilsonl.in /mnt/search-engine --region us-east-1 --read-on
 
 The primary data store, sharded across 64 instances using XXH3 consistent hashing.
 
+**Sharding:** `shard_number = xxh3_64(key) % 64`
+
 **Key Format:** `[prefix_byte][url]`
 
-**Prefix Bytes:**
+Each shard contains 9 key types:
 
 | Prefix | Key Type | Value Format | Description |
 |--------|----------|--------------|-------------|
@@ -82,11 +102,6 @@ The primary data store, sharded across 64 instances using XXH3 consistent hashin
 | `0x07` | `ResourceBlockEmbeddings` | MessagePack | Block-level 768-dim embeddings |
 | `0x08` | `ResourceStatementLabels` | MessagePack | Classification labels for statements |
 | `0x09` | `ResourceStatementEmbeddings` | MessagePack | Statement-level 768-dim embeddings |
-
-**Sharding logic:**
-```python
-shard_number = xxhash.xxh3_64(key) % 64
-```
 
 **Resource Schema (prefix 0x01):**
 ```rust
@@ -136,13 +151,15 @@ shard_number = xxhash.xxh3_64(key) % 64
 
 Bidirectional mappings between URLs and numeric IDs, stored in `resource-id/rocksdb/`.
 
-**Key Formats:**
+**Key Types:**
 
-| Prefix | Key Format | Value Format | Purpose |
-|--------|-----------|--------------|---------|
-| `0x01` | `[0x01][url_bytes]` | MessagePack `{uid: u64, fetch_id: u64, statement_uid_base: u64?}` | URL → Resource mapping |
-| `0x02` | `[0x02][uid_big_endian]` | UTF-8 string | UID → URL mapping |
-| `0x03` | `[0x03][statement_uid_base_big_endian]` | UTF-8 string | Statement UID base → URL |
+| Prefix | Mapping | Key Format | Value Format |
+|--------|---------|------------|--------------|
+| `0x01` | URL → Resource | `[0x01][url]` | MessagePack: `{uid, fetch_id, statement_uid_base}` |
+| `0x02` | UID → URL | `[0x02][uid_big_endian]` | String: URL |
+| `0x03` | Statement UID Base → URL | `[0x03][uid_big_endian]` | String: URL |
+
+**Note:** UIDs are stored as big-endian 64-bit integers to maintain sort order for range queries.
 
 The statement UID base is the starting UID for all statements within a resource. Statement UIDs are sequential, so `statement_uid_base + statement_index = statement_uid`.
 
@@ -338,20 +355,27 @@ All URLs in the dataset are normalized:
 - Statement embeddings: ~2.7B vectors
 - Total: ~3B vectors
 
-## Citation
+If you use this dataset in your research, please cite:
 
-If you use this dataset in your research or applications, please cite:
+```bibtex
+@misc{lin2025searchengine,
+  author = {Wilson Lin},
+  title = {search.wilsonl.in Web Search Index Crawl + Text Embeddings},
+  year = {2025},
+  publisher = {AWS Open Data},
+  url = {https://github.com/wilsonzlin/datasets/search-engine-open-data/}
+}
+```
 
-**Dataset:**
-```
-Wilson Lin. (2025). search.wilsonl.in Web Search Index Crawl + Text Embeddings [Data set]. 
-AWS Open Data. https://github.com/wilsonzlin/datasets/search-engine-open-data/
-```
+For the original search engine project:
 
-**Blog post:**
-```
-Wilson Lin. (2025). Building a web search engine from scratch in two months with 3 billion neural embeddings.
-https://blog.wilsonl.in/search-engine
+```bibtex
+@misc{lin2024searchengine,
+  author = {Wilson Lin},
+  title = {Building a web search engine from scratch in two months with 3 billion neural embeddings},
+  year = {2024},
+  howpublished = {\url{https://blog.wilsonl.in/search-engine}}
+}
 ```
 
 ## License
