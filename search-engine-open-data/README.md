@@ -362,7 +362,6 @@ If you use this dataset in your research, please cite:
   author = {Wilson Lin},
   title = {search.wilsonl.in Web Search Index Crawl + Text Embeddings},
   year = {2025},
-  publisher = {AWS Open Data},
   url = {https://github.com/wilsonzlin/datasets/search-engine-open-data/}
 }
 ```
@@ -374,7 +373,7 @@ For the original search engine project:
   author = {Wilson Lin},
   title = {Building a web search engine from scratch in two months with 3 billion neural embeddings},
   year = {2025},
-  howpublished = {\url{https://blog.wilsonl.in/search-engine}}
+  url = {https://blog.wilsonl.in/search-engine}
 }
 ```
 
