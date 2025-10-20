@@ -358,7 +358,7 @@ All URLs in the dataset are normalized:
 If you use this dataset in your research, please cite:
 
 ```bibtex
-@misc{lin2025searchengine,
+@misc{lin2025searchenginedataset,
   author = {Wilson Lin},
   title = {search.wilsonl.in Web Search Index Crawl + Text Embeddings},
   year = {2025},
@@ -370,10 +370,10 @@ If you use this dataset in your research, please cite:
 For the original search engine project:
 
 ```bibtex
-@misc{lin2024searchengine,
+@misc{lin2025searchengine,
   author = {Wilson Lin},
   title = {Building a web search engine from scratch in two months with 3 billion neural embeddings},
-  year = {2024},
+  year = {2025},
   howpublished = {\url{https://blog.wilsonl.in/search-engine}}
 }
 ```
